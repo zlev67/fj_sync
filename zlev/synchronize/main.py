@@ -502,3 +502,10 @@ class MainWindow(QMainWindow):
                 self.update_scan_button_state()
                 self.update_browse_buttons_state()
                 self.on_scan_done()
+
+
+if __name__ == "__main__":
+    app = QApplication([])
+    window = MainWindow()
+    window.show()
+    app.exec()
