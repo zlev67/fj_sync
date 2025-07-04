@@ -34,7 +34,7 @@ class FileJumpApi:
             return None
         return data
 
-    def post_file(self, file_path, parent_id, relative_path):
+    def post_file(self, file_path, relative_path):
         """
 
         :return:
@@ -49,17 +49,12 @@ class FileJumpApi:
         request = HttpRequest( self.base_url+url, headers=headers)
         mime_type, _ = mimetypes.guess_type(file_path)
         mime_type = mime_type or "application/octet-stream"
-        creation_time = os.path.getctime(file_path)
-        update_time = os.path.getmtime(file_path)
         files = {
             "file": (file_path, open(file_path, "rb"), mime_type),
         }
         data = {
             "parentId": "null",
             "relativePath": relative_path,
-            "description": "my sample description",
-            "created_at": str(datetime.datetime.fromtimestamp(creation_time).isoformat()),
-            "updated_at": str(datetime.datetime.fromtimestamp(creation_time).isoformat()),
         }
         response = request.post_request(data=data, files=files)
         if response.status_code != 201:
@@ -160,9 +155,14 @@ class FileJumpApi:
             return all_entries
 
         for entry in entries:
-            all_entries.append(entry)
             if entry.get('type') == 'folder':  # Assuming 'type' indicates file or directory
-                all_entries.extend(self.read_directory_tree(entry.get('id')))
+                sub_entries = self.read_directory_tree(entry.get('id'))
+                if sub_entries:
+                    all_entries.extend(sub_entries)
+                    entry['empty'] = False
+                else:
+                    entry['empty'] = True  # Mark empty directories
+            all_entries.append(entry)
 
         return all_entries
 
@@ -180,22 +180,30 @@ class FileJumpApi:
                     return file
         return None
 
-    @staticmethod
-    def delete_files_and_empty_dirs(entry_ids, api=None):
+    def delete(self, entry_ids):
         """
         Deletes all files in the given list of FileJump entry IDs.
         If a file is the last in its directory, removes the directory too (recursively up).
         :param entry_ids: List of file entry IDs to delete.
-        :param api: Optional FileJumpApi instance (for recursive folder deletion).
         """
         if not entry_ids:
             return
-        if api is None:
-            api = FileJumpApi()
         # Delete files
-        api.delete_files(entry_ids)
+        self.delete_files(entry_ids, delete_forever=True)
         # Check for empty directories and delete them
+        dir_tree = self.read_directory_tree()
+        while True:
+            empty_dirs = set()
+            for entry in dir_tree:
+                if entry['type'] == 'folder' and entry.get('empty'):
+                    empty_dirs.add(entry['id'])
+            if empty_dirs:
+                self.delete_files(empty_dirs, delete_forever=True)
+            else:
+                break
 
+    def delete_empty_directories(self, path_id):
+        all_files = self.read_directory_tree(path_id)
 
 
     def download(self, files, target_dir):
@@ -214,44 +222,66 @@ class FileJumpApi:
             with open(file_path, "wb") as f:
                 f.write(content)
 
-    def upload(self, files, parent_id=None):
+    def upload(self, files):
         """
         Upload a list of files to FileJump.
         :param files: List of local file dicts (must contain 'path' and 'name')
         :param parent_id: Optional parent folder id in FileJump
         """
+        def write_file(file_path, relative_path):
+            """
+            Helper function to upload a single file.
+            :param file_path: Local path of the file to upload
+            :param parent_id: Parent folder ID in FileJump
+            :param relative_path: Relative path in FileJump
+            """
+            try:
+                res = self.post_file(file_path, relative_path)
+                entry_id = res["fileEntry"]["id"]
+                desc = json.dumps(
+                    {
+                        "SHA256": Tools.calculate_sha256(file_path),
+                        "ctime": str(datetime.datetime.fromtimestamp(os.path.getctime(file_path))),
+                        "utime": str(datetime.datetime.fromtimestamp(os.path.getmtime(file_path))),
+                    })
+                self.set_description(entry_id, desc)
+            except FJError as e:
+                print(f"Failed to upload {file_path}: {e}")
+
         for file in files:
             file_path = file.get("path")
             name = file.get("name")
             if not file_path or not name:
                 continue
             relative_path = file.get("ppath", name)
-            self.post_file(file_path, parent_id, relative_path)
+            write_file(file_path, relative_path)
 
-if __name__ == '__main__':
-    api = FileJumpApi()
-    file_name = "c:\\Users\\zlev\\Downloads\\offline-export.png"
-    try:
-        res = api.post_file(file_name , parent_id=None, relative_path="offline-export.png")
-        print(res)
 
-        entry_id = res["fileEntry"]["id"]
-        parent_id = res["fileEntry"]["parent_id"]
-        file_info = api.get_file_info(parent_id, entry_id)
-        desc = json.dumps(
-        {
-            "SHA256": Tools.calculate_sha256(file_name),
-            "ctime": str(datetime.datetime.fromtimestamp(os.path.getctime(file_name))),
-            "utime": str(datetime.datetime.fromtimestamp(os.path.getmtime(file_name))),
-        })
-        api.set_description(entry_id, desc)
-        file_info2 = api.get_file_info(parent_id, entry_id)
 
-        file = api.get_file(entry_id)
-        print(file)
-
-        files = api.read_directory_tree()
-        print(files)
-
-    except FJError as e:
-        print(f"Error: {e}")
+# if __name__ == '__main__':
+#     api = FileJumpApi()
+#     file_name = "c:\\Users\\zlev\\Downloads\\offline-export.png"
+#     try:
+#         res = api.post_file(file_name, relative_path="offline-export.png")
+#         print(res)
+#
+#         entry_id = res["fileEntry"]["id"]
+#         parent_id = res["fileEntry"]["parent_id"]
+#         file_info = api.get_file_info(parent_id, entry_id)
+#         desc = json.dumps(
+#         {
+#             "SHA256": Tools.calculate_sha256(file_name),
+#             "ctime": str(datetime.datetime.fromtimestamp(os.path.getctime(file_name))),
+#             "utime": str(datetime.datetime.fromtimestamp(os.path.getmtime(file_name))),
+#         })
+#         api.set_description(entry_id, desc)
+#         file_info2 = api.get_file_info(parent_id, entry_id)
+#
+#         file = api.get_file(entry_id)
+#         print(file)
+#
+#         files = api.read_directory_tree()
+#         print(files)
+#
+#     except FJError as e:
+#         print(f"Error: {e}")
