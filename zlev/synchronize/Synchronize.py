@@ -33,14 +33,15 @@ class Synchronize:
         direction = sd.direction
         collision_resolution = sd.collision_resolution
         delete_dest_files = sd.delete_at_destination
-
+        fj = FileJumpApi()
+        local = LocalFiles()
         in_first, in_second, in_both = self.compare_files(local_file_list, fj_file_list)
         if direction == "local_to_fj":
             if delete_dest_files:
                 delete = in_second + in_both
             else:
                 delete = in_second
-            self.f fj.delete(delete)  # Delete files only in FileJump
+            fj.delete(delete)  # Delete files only in FileJump
             fj.upload(in_first+in_both)
         elif direction == "fj_to_local":
             local.delete(in_first + in_both)
