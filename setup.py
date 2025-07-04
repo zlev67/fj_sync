@@ -69,12 +69,7 @@ setup(name=package_name,
       packages=package_list,
       include_package_data=True,
       install_requires=[
-          "adat",
-          "adat.common>=0.14.10",
-          "adat.data_access>=2.10.0",
-          "svtools.intel_version>=2.0.0",
-          'mypy',
-          "adat.sic>=0.23.2503251000",
+          "pyside6",
       ],
     entry_points = {
     'console_scripts': [],

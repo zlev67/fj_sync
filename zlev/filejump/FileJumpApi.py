@@ -1,4 +1,3 @@
-import hashlib
 import json
 import mimetypes
 import os
@@ -6,8 +5,8 @@ import datetime
 
 from zlev.filejump.Exceptions import FJError
 from zlev.filejump.HttpRequest import HttpRequest
-from   requests_toolbelt      import MultipartEncoder
-from   requests_toolbelt      import MultipartEncoderMonitor
+from zlev.tools.Tools import Tools
+
 
 class FileJumpApi:
     base_url = "https://app.filejump.com/api/v1/"
@@ -182,19 +181,52 @@ class FileJumpApi:
         return None
 
     @staticmethod
-    def calculate_sha256(local_file):
+    def delete_files_and_empty_dirs(entry_ids, api=None):
         """
-        Calculates the SHA256 hash of a file's content.
-
-        :param local_file: Path to the file
-        :return: SHA256 hash as a hexadecimal string
+        Deletes all files in the given list of FileJump entry IDs.
+        If a file is the last in its directory, removes the directory too (recursively up).
+        :param entry_ids: List of file entry IDs to delete.
+        :param api: Optional FileJumpApi instance (for recursive folder deletion).
         """
-        sha256_hash = hashlib.sha256()
-        with open(local_file, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(chunk)
-        return sha256_hash.hexdigest()
+        if not entry_ids:
+            return
+        if api is None:
+            api = FileJumpApi()
+        # Delete files
+        api.delete_files(entry_ids)
+        # Check for empty directories and delete them
 
+
+
+    def download(self, files, target_dir):
+        """
+        Download a list of files from FileJump to the local target directory.
+        :param files: List of file dicts (must contain 'id' and 'name')
+        :param target_dir: Local directory to save files
+        """
+        for file in files:
+            entry_id = file.get("id")
+            name = file.get("name")
+            if not entry_id or not name:
+                continue
+            content = self.get_file(entry_id)
+            file_path = os.path.join(target_dir, name)
+            with open(file_path, "wb") as f:
+                f.write(content)
+
+    def upload(self, files, parent_id=None):
+        """
+        Upload a list of files to FileJump.
+        :param files: List of local file dicts (must contain 'path' and 'name')
+        :param parent_id: Optional parent folder id in FileJump
+        """
+        for file in files:
+            file_path = file.get("path")
+            name = file.get("name")
+            if not file_path or not name:
+                continue
+            relative_path = file.get("ppath", name)
+            self.post_file(file_path, parent_id, relative_path)
 
 if __name__ == '__main__':
     api = FileJumpApi()
@@ -208,7 +240,7 @@ if __name__ == '__main__':
         file_info = api.get_file_info(parent_id, entry_id)
         desc = json.dumps(
         {
-            "SHA256": api.calculate_sha256(file_name),
+            "SHA256": Tools.calculate_sha256(file_name),
             "ctime": str(datetime.datetime.fromtimestamp(os.path.getctime(file_name))),
             "utime": str(datetime.datetime.fromtimestamp(os.path.getmtime(file_name))),
         })
@@ -217,7 +249,6 @@ if __name__ == '__main__':
 
         file = api.get_file(entry_id)
         print(file)
-
 
         files = api.read_directory_tree()
         print(files)
